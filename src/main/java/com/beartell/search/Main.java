@@ -11,6 +11,8 @@ import java.util.List;
 public class Main {
     private JFrame frame;
     private JTextArea textArea;
+    private JButton scanButton;
+    private JProgressBar progressBar;
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> new Main().start());
@@ -23,12 +25,16 @@ public class Main {
         frame.setLayout(new BorderLayout());
 
         JPanel top = new JPanel();
-        JButton scanButton = new JButton("Scan Files");
+        scanButton = new JButton("Scan Files");
         JTextField searchField = new JTextField(20);
         JButton searchButton = new JButton("Search");
+        progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
+        progressBar.setVisible(false);
         top.add(scanButton);
         top.add(searchField);
         top.add(searchButton);
+        top.add(progressBar);
         frame.add(top, BorderLayout.NORTH);
 
         textArea = new JTextArea();
@@ -48,22 +54,49 @@ public class Main {
 
     private void scanAction() {
         textArea.setText("Scanning...\n");
-        scanner = new FileScanner();
-        scanner.scan();
-        textArea.append("Found " + scanner.getFiles().size() + " files\n");
+        scanButton.setEnabled(false);
+        frame.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        progressBar.setValue(0);
+        progressBar.setVisible(true);
 
-        clusterer = new FileClusterer();
-        List<FileClusterer.Cluster> clusters = clusterer.cluster(scanner.getFiles());
-        textArea.append("\nClusters by extension:\n");
-        for (FileClusterer.Cluster c : clusters) {
-            textArea.append(c.label + ": " + c.items.size() + " files\n");
-        }
+        SwingWorker<Void, Integer> worker = new SwingWorker<>() {
+            @Override
+            protected Void doInBackground() {
+                scanner = new FileScanner();
+                scanner.scan(p -> publish(p));
+                return null;
+            }
 
-        index = new SearchIndex();
-        for (FileScanner.FileInfo info : scanner.getFiles()) {
-            index.add(info);
-        }
-        textArea.append("\nIndex ready. Use search box above.\n");
+            @Override
+            protected void process(List<Integer> chunks) {
+                int p = chunks.get(chunks.size() - 1);
+                progressBar.setValue(p);
+            }
+
+            @Override
+            protected void done() {
+                progressBar.setVisible(false);
+                frame.setCursor(Cursor.getDefaultCursor());
+                scanButton.setEnabled(true);
+
+                textArea.append("Found " + scanner.getFiles().size() + " files\n");
+
+                clusterer = new FileClusterer();
+                List<FileClusterer.Cluster> clusters = clusterer.cluster(scanner.getFiles());
+                textArea.append("\nClusters by extension:\n");
+                for (FileClusterer.Cluster c : clusters) {
+                    textArea.append(c.label + ": " + c.items.size() + " files\n");
+                }
+
+                index = new SearchIndex();
+                for (FileScanner.FileInfo info : scanner.getFiles()) {
+                    index.add(info);
+                }
+                textArea.append("\nIndex ready. Use search box above.\n");
+            }
+        };
+
+        worker.execute();
     }
 
     private void searchAction(String term) {
